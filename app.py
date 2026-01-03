@@ -1,9 +1,6 @@
 import time
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
-import torch.optim as optim
 from pybit.unified_trading import HTTP
 import os
 
@@ -21,7 +18,6 @@ session = HTTP(testnet=TESTNET, api_key=API_KEY, api_secret=API_SECRET)
 SYMBOL = 'BTCUSDT'
 INTERVAL = '5'
 LIMIT = 200
-TRAIN_LIMIT = 1000
 MAX_QTY = 0.01
 RISK_PERCENT = 0.01
 SL_PERCENT = 0.01
@@ -50,7 +46,7 @@ def calculate_rsi(prices, period=14):
             rsi[i] = 100
         else:
             rs = avg_gain / avg_loss
-            rsi[i] = 100 - (100 / (1 + rs)))
+            rsi[i] = 100 - (100 / (1 + rs))
     
     return rsi
 
@@ -70,63 +66,6 @@ def calculate_macd(prices, fast=12, slow=26, signal=9):
     signal_line = ema(macd_line, signal)
     histogram = macd_line - signal_line
     return macd_line, signal_line, histogram
-
-# Enkel Torch-modell
-class SimplePredictor(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.fc1 = nn.Linear(3, 10)  # Input: RSI, MACD, Histogram
-        self.fc2 = nn.Linear(10, 1)  # Output: -1 till 1 för sell/hold/buy
-    
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        return x
-
-model = SimplePredictor()
-
-# Träna modellen
-def train_model():
-    response = session.get_kline(
-        category='linear',
-        symbol=SYMBOL,
-        interval=INTERVAL,
-        limit=TRAIN_LIMIT
-    )
-    if response['retCode'] != 0:
-        print(f"Fel vid träningsdata: {response['retMsg']}")
-        return
-
-    klines = response['result']['list']
-    df = pd.DataFrame(klines, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
-    df['close'] = df['close'].astype(float)
-    closes = df['close'].values[::-1]
-    
-    rsi = calculate_rsi(closes)
-    macd, signal, hist = calculate_macd(closes)
-    
-    inputs = []
-    labels = []
-    for i in range(len(closes) - 1):
-        inputs.append([rsi[i] / 100, macd[i], hist[i])
-        ret = (closes[i+1] - closes[i]) / closes[i]
-        labels.append(max(min(ret, 1), -1))
-    
-    inputs = torch.tensor(inputs, dtype=torch.float32)
-    labels = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)
-    
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
-    criterion = nn.MSELoss()
-    for epoch in range(100):
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch}, Loss: {loss.item()}")
-    
-    print("Modell tränad!")
 
 def get_balance():
     response = session.get_wallet_balance(accountType='UNIFIED', coin='USDT')
@@ -174,8 +113,6 @@ def place_order(side, qty, price=None, entry_price=None, is_open=True):
         print(f"Fel vid order: {response['retMsg']}")
     return response
 
-train_model()  # Träna en gång
-
 while True:
     response = session.get_kline(
         category='linear',
@@ -199,8 +136,7 @@ while True:
     macd_val = macd[-1]
     hist_val = hist[-1]
     
-    inputs = torch.tensor([[rsi / 100, macd_val, hist_val]], dtype=torch.float32)
-    prediction = model(inputs).item()
+    prediction = 0.6 if hist_val > 0 else -0.6
     
     position_size, position_side, entry_price = get_position()
     balance = get_balance()
